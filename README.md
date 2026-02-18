@@ -2,9 +2,9 @@
 
 A document parser that extracts structured text from PDFs, Word docs, HTML, images, and emails.
 
-Most document formats weren't designed to be read by software. PDFs store text as positioned fragments with no concept of paragraphs or sections. Scanned documents are just images. Forms mix printed labels with handwritten values. When you extract text from these naively, you lose structure -- headings flatten into body text, tables become jumbled lines, and multi-column layouts interleave into nonsense.
+Most document formats weren't designed to be read by software. PDFs store text as positioned fragments with no concept of paragraphs or sections. Scanned documents are just images. Forms mix printed labels with handwritten values. When you extract text from these naively, you lose structure. Headings flatten into body text, tables become jumbled lines, and multi-column layouts interleave into nonsense.
 
-This is especially problematic when using documents as context for LLMs. Models produce better results when the input preserves the original structure of the document -- when headings are marked as headings, tables remain tabular, and reading order is correct. DocForge parses documents into clean markdown and structured data so that the text you pass to a model actually reflects what a human would see on the page.
+This is especially problematic when using documents as context for LLMs. Models produce better results when the input preserves the original structure of the document. When headings are marked as headings, tables remain tabular, and reading order is correct. DocForge parses documents into clean markdown and structured data so that the text you pass to a model actually reflects what a human would see on the page.
 
 ## Install
 
