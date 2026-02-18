@@ -1,18 +1,26 @@
 # DocForge
 
-Universal document parser for LLMs. One function call, any document, clean structured output.
+**Turn any document into clean, structured text that LLMs can actually use.**
 
-DocForge takes messy real-world documents -- PDFs, scanned forms, images -- and produces clean markdown, structured sections, extracted tables, and rich metadata. It handles digital text, scanned pages via OCR, and hybrid form pages where printed labels and handwritten values coexist.
+If you've ever tried feeding a PDF, a scanned form, or an email into an LLM, you know the pain. Raw text extraction gives you garbled layouts, lost headings, tables turned into nonsense, and scanned pages that come back completely empty. You end up spending more time cleaning the input than getting useful output from the model.
 
-## Features
+DocForge fixes that. One function call, any document, and you get back clean markdown with proper headings, structured tables, metadata, and per-page breakdowns -- ready to drop straight into a prompt.
 
-- **Single entry point** -- `docforge.parse()` handles everything
-- **PDF extraction** with font-aware heading detection and multi-column reading order
-- **OCR fallback** for scanned pages using Tesseract or EasyOCR, with automatic image preprocessing
-- **Hybrid mode** for form pages that mix digital text with handwritten fields
-- **Table detection** from PDF drawing commands (grid lines)
-- **Structured output** -- markdown, hierarchical sections, tables as dicts, per-page breakdown
-- **Pluggable architecture** -- add new formats by registering an extractor class
+## Why This Matters for LLMs
+
+LLMs are only as good as the context you give them. When you're building RAG pipelines, document Q&A systems, or any kind of automated analysis, the quality of your document parsing directly determines the quality of your results. Bad parsing means bad answers.
+
+The problem is that real-world documents are messy. A single PDF might have digital text on some pages, scanned images on others, and forms where printed labels sit next to handwritten values. Most parsers handle one of these cases well and completely fail on the rest.
+
+DocForge handles all of them:
+
+- **Digital PDFs** -- extracts text with correct reading order, even across multi-column layouts
+- **Scanned documents** -- automatically detects scanned pages and runs OCR with image preprocessing to maximize accuracy
+- **Form pages** -- hybrid mode runs both digital extraction and OCR, then merges the results so you get both the printed labels and the handwritten values without duplicates
+- **Word docs, HTML, emails** -- same clean output regardless of the source format
+- **Tables** -- detected and extracted as structured data, not flattened into unreadable text
+
+The output is markdown that preserves document structure. Headings stay as headings. Tables stay as tables. Sections nest properly. This means your LLM can actually understand what it's reading instead of trying to make sense of a wall of unformatted text.
 
 ## Install
 
@@ -20,7 +28,7 @@ DocForge takes messy real-world documents -- PDFs, scanned forms, images -- and 
 pip install docforge
 ```
 
-For OCR support (scanned documents):
+For scanned document support (OCR):
 
 ```bash
 pip install 'docforge[ocr]'
@@ -28,7 +36,7 @@ brew install tesseract        # macOS
 # apt-get install tesseract-ocr  # Linux
 ```
 
-For all optional dependencies:
+For everything:
 
 ```bash
 pip install 'docforge[all]'
@@ -49,29 +57,49 @@ print(result.sections)       # Hierarchical section tree
 print(result.pages)          # Per-page content breakdown
 ```
 
+It works the same way regardless of file type:
+
+```python
+result = docforge.parse("document.docx")
+result = docforge.parse("page.html")
+result = docforge.parse("message.eml")
+result = docforge.parse("scan.png")
+```
+
 ### Scanned and Hybrid Documents
 
 ```python
-# Scanned PDF -- OCR runs automatically when digital text is absent
+# Scanned pages are detected automatically -- OCR runs when needed
 result = docforge.parse("scanned_form.pdf")
 
-# Hybrid mode -- captures handwritten field values on printed forms
+# Hybrid mode for forms with printed labels + handwritten values
 result = docforge.parse("intake_form.pdf", hybrid=True)
 
 # Use EasyOCR instead of Tesseract
 result = docforge.parse("scan.pdf", ocr_engine="easyocr")
 ```
 
-### Page Filtering and Image Extraction
+### Feeding Results to an LLM
 
 ```python
-# Parse only specific pages
-result = docforge.parse("long_report.pdf", pages=[1, 2, 3])
+import docforge
 
-# Extract embedded images
-result = docforge.parse("report.pdf", extract_images=True)
-for img in result.images:
-    print(img.format, img.width, img.height)
+result = docforge.parse("quarterly_report.pdf")
+
+# The markdown output is ready to use as LLM context
+prompt = f"""Based on the following document, summarize the key findings:
+
+{result.markdown}
+"""
+
+# Or work with structured data directly
+for table in result.tables:
+    print(table.headers)  # ['Quarter', 'Revenue', 'Expenses']
+    print(table.rows)     # [{'Quarter': 'Q1', 'Revenue': '$100k', ...}]
+
+# Per-page analysis
+for page in result.pages:
+    print(f"Page {page.number}: {len(page.content)} chars")
 ```
 
 ### JSON Output
@@ -105,59 +133,50 @@ docforge parse scan.pdf --ocr-engine easyocr
 docforge parse report.pdf --extract-images
 ```
 
-## Architecture
+## Supported Formats
 
-DocForge uses a three-stage pipeline:
+| Format | What it does |
+|--------|-------------|
+| PDF (digital) | Extracts text with position, font size, bold flags. Detects headings, columns, tables. |
+| PDF (scanned) | Renders pages at 300 DPI, preprocesses images, runs OCR. Automatic -- no flag needed. |
+| PDF (hybrid forms) | Runs both digital extraction and OCR, merges results by spatial overlap. Use `--hybrid`. |
+| Images (PNG, JPG, TIFF, BMP) | Runs OCR with preprocessing (grayscale, upscale, contrast, sharpen, denoise). |
+| Word (.docx) | Extracts paragraphs, heading styles, tables, and document properties. |
+| HTML | Strips boilerplate (nav, ads, scripts), walks the DOM for headings, paragraphs, and tables. |
+| Email (.eml) | Parses headers (from, to, subject, date) and extracts plain text or HTML body. |
+| Email (.msg) | Same as .eml, using the extract-msg library. |
+
+## How It Works
+
+DocForge runs a three-stage pipeline:
 
 ```
 Input (file path, bytes, or URL)
     |
     v
-[1] Format Detection -- magic bytes, MIME type, file extension
+[1] Detect format -- reads magic bytes, checks extension, sniffs content
     |
     v
-[2] Extraction -- format-specific extractor (registered via plugin system)
+[2] Extract -- routes to the right extractor, pulls out text blocks with positions
     |
     v
-[3] Structuring -- normalize raw blocks into ParseResult
+[3] Structure -- builds section tree, generates markdown, extracts tables
     |
     v
-Output (ParseResult with markdown, sections, tables, metadata)
+Output (ParseResult with markdown, sections, tables, metadata, pages)
 ```
 
-### Format Detection
+Each format has its own extractor class that registers itself on import. Adding support for a new format means writing one class and decorating it -- no changes to the core pipeline.
 
-The detector reads the first 8 bytes of a file to identify format by magic bytes (`%PDF`, PNG signature, JPEG SOI, etc.), then falls back to file extension and text-based heuristics for HTML and email formats.
+### What Makes the PDF Extractor Different
 
-### Extraction
+Most PDF parsers do one thing: dump all the text. DocForge does more:
 
-Each document format has a dedicated extractor class registered with `@register(DocumentFormat.X)`. Currently implemented:
-
-- **PDF** -- digital text via PyMuPDF, OCR via Tesseract/EasyOCR, table detection via drawing commands
-
-The extractor registry makes it straightforward to add new formats -- write a class that implements `BaseExtractor.extract()`, decorate it with `@register`, and import it. No changes to core code required.
-
-### PDF Extraction Details
-
-For each page, the PDF extractor:
-
-1. Extracts digital text with position, font size, and bold flags from PyMuPDF
-2. Checks if the page is scanned (fewer than 50 characters of digital text with embedded images)
-3. If scanned: renders the page at 300 DPI and runs OCR with preprocessing (grayscale, upscale, contrast boost, sharpening, denoise)
-4. If hybrid mode is enabled and the page looks like a form (50-2000 chars, many short label-like lines): runs both digital extraction and OCR, then merges results using spatial overlap to avoid duplicating printed labels while keeping handwritten values
-5. Detects headings by comparing font sizes to the median across all blocks
-6. Detects multi-column layouts by finding significant gaps in x-coordinates
-7. Extracts tables by finding horizontal and vertical grid lines in PDF drawing commands
-
-### Structuring
-
-The structurer converts raw text blocks into:
-
-- A hierarchical section tree based on heading levels
-- Markdown with proper heading markers and table syntax
-- Plain text content
-- Per-page breakdowns with associated tables and images
-- Metadata including computed word count
+1. **Reading order** -- detects multi-column layouts by finding gaps in x-coordinates, then reads left column before right column instead of interleaving lines
+2. **Heading detection** -- compares each text block's font size against the median. Larger or bolder text gets marked as a heading with the appropriate level
+3. **Scanned page detection** -- if a page has images but fewer than 50 characters of digital text, it's treated as a scan and routed through OCR
+4. **Hybrid form extraction** -- when a page has some digital text (printed labels) but also images (handwritten fields), hybrid mode runs both extraction methods and uses spatial overlap to merge without duplicating the printed text
+5. **Table detection** -- finds horizontal and vertical lines in the PDF's drawing commands to identify table grids, then maps text into cells
 
 ## Output Schema
 
@@ -190,44 +209,19 @@ Metadata
   created_date, modified_date: datetime | None
 ```
 
-## Project Structure
-
-```
-docforge/
-  __init__.py          -- public API (parse, models)
-  parser.py            -- main orchestration
-  detector.py          -- format detection (magic bytes, extension, heuristics)
-  registry.py          -- extractor plugin registry
-  structurer.py        -- raw blocks to ParseResult
-  models.py            -- Pydantic v2 output models
-  cli.py               -- Click CLI
-  extractors/
-    base.py            -- TextBlock, RawTable, RawImage, BaseExtractor
-    pdf.py             -- PDF extractor (digital + OCR + hybrid)
-  utils/
-    ocr.py             -- Tesseract/EasyOCR wrapper, preprocessing, hybrid merge
-    table_detect.py    -- table detection from drawing commands
-    download.py        -- URL fetching to temp files
-tests/
-  test_pdf.py          -- PDF extraction and integration tests
-  test_ocr.py          -- OCR and hybrid merge unit tests
-  test_structurer.py   -- structuring pipeline tests
-  test_detector.py     -- format detection tests
-```
-
 ## Dependencies
 
 **Core** (always installed):
 - PyMuPDF -- PDF parsing
 - Pydantic v2 -- output models and validation
 - Click -- CLI framework
+- BeautifulSoup4 -- HTML parsing
 
 **Optional**:
 - `docforge[ocr]` -- pytesseract, Pillow (requires system Tesseract install)
 - `docforge[easyocr]` -- EasyOCR (no system install needed, uses PyTorch)
-- `docforge[docx]` -- python-docx (not yet implemented)
-- `docforge[html]` -- BeautifulSoup4, readability-lxml (not yet implemented)
-- `docforge[email]` -- extract-msg (not yet implemented)
+- `docforge[docx]` -- python-docx
+- `docforge[email]` -- extract-msg (for .msg files; .eml works out of the box)
 - `docforge[all]` -- everything above
 
 ## Development
