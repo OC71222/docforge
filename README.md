@@ -1,26 +1,10 @@
 # DocForge
 
-**Turn any document into clean, structured text that LLMs can actually use.**
+A document parser that extracts structured text from PDFs, Word docs, HTML, images, and emails.
 
-If you've ever tried feeding a PDF, a scanned form, or an email into an LLM, you know the pain. Raw text extraction gives you garbled layouts, lost headings, tables turned into nonsense, and scanned pages that come back completely empty. You end up spending more time cleaning the input than getting useful output from the model.
+Most document formats weren't designed to be read by software. PDFs store text as positioned fragments with no concept of paragraphs or sections. Scanned documents are just images. Forms mix printed labels with handwritten values. When you extract text from these naively, you lose structure -- headings flatten into body text, tables become jumbled lines, and multi-column layouts interleave into nonsense.
 
-DocForge fixes that. One function call, any document, and you get back clean markdown with proper headings, structured tables, metadata, and per-page breakdowns -- ready to drop straight into a prompt.
-
-## Why This Matters for LLMs
-
-LLMs are only as good as the context you give them. When you're building RAG pipelines, document Q&A systems, or any kind of automated analysis, the quality of your document parsing directly determines the quality of your results. Bad parsing means bad answers.
-
-The problem is that real-world documents are messy. A single PDF might have digital text on some pages, scanned images on others, and forms where printed labels sit next to handwritten values. Most parsers handle one of these cases well and completely fail on the rest.
-
-DocForge handles all of them:
-
-- **Digital PDFs** -- extracts text with correct reading order, even across multi-column layouts
-- **Scanned documents** -- automatically detects scanned pages and runs OCR with image preprocessing to maximize accuracy
-- **Form pages** -- hybrid mode runs both digital extraction and OCR, then merges the results so you get both the printed labels and the handwritten values without duplicates
-- **Word docs, HTML, emails** -- same clean output regardless of the source format
-- **Tables** -- detected and extracted as structured data, not flattened into unreadable text
-
-The output is markdown that preserves document structure. Headings stay as headings. Tables stay as tables. Sections nest properly. This means your LLM can actually understand what it's reading instead of trying to make sense of a wall of unformatted text.
+This is especially problematic when using documents as context for LLMs. Models produce better results when the input preserves the original structure of the document -- when headings are marked as headings, tables remain tabular, and reading order is correct. DocForge parses documents into clean markdown and structured data so that the text you pass to a model actually reflects what a human would see on the page.
 
 ## Install
 
@@ -36,28 +20,28 @@ brew install tesseract        # macOS
 # apt-get install tesseract-ocr  # Linux
 ```
 
-For everything:
+For all optional dependencies:
 
 ```bash
 pip install 'docforge[all]'
 ```
 
-## Quick Start
+## Usage
 
 ```python
 import docforge
 
 result = docforge.parse("report.pdf")
 
-print(result.markdown)       # Clean markdown with headings and tables
-print(result.content)        # Plain text, no formatting
-print(result.tables)         # Extracted tables as structured data
-print(result.metadata)       # Title, author, page count, word count
-print(result.sections)       # Hierarchical section tree
-print(result.pages)          # Per-page content breakdown
+result.markdown       # markdown with headings and tables preserved
+result.content        # plain text
+result.tables         # list of extracted tables with headers and rows
+result.sections       # hierarchical section tree based on heading levels
+result.pages          # per-page content breakdown
+result.metadata       # title, author, page count, word count
 ```
 
-It works the same way regardless of file type:
+The same call works for other formats:
 
 ```python
 result = docforge.parse("document.docx")
@@ -66,119 +50,102 @@ result = docforge.parse("message.eml")
 result = docforge.parse("scan.png")
 ```
 
-### Scanned and Hybrid Documents
+### Scanned and hybrid documents
+
+Scanned pages are detected automatically. If a PDF page has images but very little digital text, DocForge renders it at 300 DPI and runs OCR.
+
+Some documents sit in a grey area -- printed forms where the labels are digital text but the filled-in values are handwritten. The `hybrid` flag handles this by running both digital extraction and OCR, then merging results using spatial overlap so that printed labels aren't duplicated.
 
 ```python
-# Scanned pages are detected automatically -- OCR runs when needed
-result = docforge.parse("scanned_form.pdf")
-
-# Hybrid mode for forms with printed labels + handwritten values
 result = docforge.parse("intake_form.pdf", hybrid=True)
-
-# Use EasyOCR instead of Tesseract
-result = docforge.parse("scan.pdf", ocr_engine="easyocr")
 ```
 
-### Feeding Results to an LLM
+### Using the output with an LLM
+
+The markdown output is meant to be passed directly as context. It preserves the document's structure in a format that models handle well.
 
 ```python
-import docforge
-
 result = docforge.parse("quarterly_report.pdf")
 
-# The markdown output is ready to use as LLM context
-prompt = f"""Based on the following document, summarize the key findings:
+prompt = f"""Summarize the key findings from this document:
 
 {result.markdown}
 """
-
-# Or work with structured data directly
-for table in result.tables:
-    print(table.headers)  # ['Quarter', 'Revenue', 'Expenses']
-    print(table.rows)     # [{'Quarter': 'Q1', 'Revenue': '$100k', ...}]
-
-# Per-page analysis
-for page in result.pages:
-    print(f"Page {page.number}: {len(page.content)} chars")
 ```
 
-### JSON Output
+Tables are also available as structured data:
 
 ```python
-result = docforge.parse("report.pdf")
+for table in result.tables:
+    print(table.headers)   # ['Quarter', 'Revenue', 'Expenses']
+    print(table.rows)      # [{'Quarter': 'Q1', 'Revenue': '$100k', ...}]
+```
 
-json_str = result.to_json()   # Full JSON serialization
-data = result.to_dict()       # Python dict
+### JSON output
+
+```python
+json_str = result.to_json()
+data = result.to_dict()
 ```
 
 ## CLI
 
 ```bash
-# Parse to markdown (default)
 docforge parse report.pdf
-
-# Parse to JSON
 docforge parse report.pdf --format json
-
-# Write output to file
 docforge parse report.pdf --output result.md
-
-# Parse specific pages with hybrid mode
 docforge parse form.pdf --pages 1-5 --hybrid
-
-# Use EasyOCR engine
 docforge parse scan.pdf --ocr-engine easyocr
-
-# Extract images
 docforge parse report.pdf --extract-images
 ```
 
-## Supported Formats
+## Supported formats
 
-| Format | What it does |
-|--------|-------------|
-| PDF (digital) | Extracts text with position, font size, bold flags. Detects headings, columns, tables. |
-| PDF (scanned) | Renders pages at 300 DPI, preprocesses images, runs OCR. Automatic -- no flag needed. |
-| PDF (hybrid forms) | Runs both digital extraction and OCR, merges results by spatial overlap. Use `--hybrid`. |
-| Images (PNG, JPG, TIFF, BMP) | Runs OCR with preprocessing (grayscale, upscale, contrast, sharpen, denoise). |
-| Word (.docx) | Extracts paragraphs, heading styles, tables, and document properties. |
-| HTML | Strips boilerplate (nav, ads, scripts), walks the DOM for headings, paragraphs, and tables. |
-| Email (.eml) | Parses headers (from, to, subject, date) and extracts plain text or HTML body. |
-| Email (.msg) | Same as .eml, using the extract-msg library. |
+| Format | Notes |
+|--------|-------|
+| PDF (digital) | Text extraction with heading detection, column ordering, and table detection from grid lines |
+| PDF (scanned) | Automatic OCR with image preprocessing. No flag needed. |
+| PDF (hybrid forms) | Digital + OCR merged by spatial overlap. Requires `--hybrid`. |
+| Images (PNG, JPG, TIFF, BMP) | OCR with preprocessing (grayscale, upscale, contrast, sharpen, denoise) |
+| Word (.docx) | Paragraphs, heading styles, tables, and document properties via python-docx |
+| HTML | Strips scripts, nav, and boilerplate. Extracts headings, paragraphs, and tables from the DOM. |
+| Email (.eml) | Headers and plain text or HTML body using the standard library |
+| Email (.msg) | Same as .eml, requires the extract-msg package |
 
-## How It Works
+## How it works
 
-DocForge runs a three-stage pipeline:
+DocForge uses a three-stage pipeline: detect the format, extract raw content with position data, then structure it into sections, markdown, and tables.
 
 ```
 Input (file path, bytes, or URL)
     |
     v
-[1] Detect format -- reads magic bytes, checks extension, sniffs content
+[1] Detect -- magic bytes, file extension, content sniffing
     |
     v
-[2] Extract -- routes to the right extractor, pulls out text blocks with positions
+[2] Extract -- format-specific extractor produces text blocks with bounding boxes
     |
     v
-[3] Structure -- builds section tree, generates markdown, extracts tables
+[3] Structure -- builds section tree, generates markdown, normalizes tables
     |
     v
-Output (ParseResult with markdown, sections, tables, metadata, pages)
+Output (ParseResult)
 ```
 
-Each format has its own extractor class that registers itself on import. Adding support for a new format means writing one class and decorating it -- no changes to the core pipeline.
+Each format has its own extractor class that registers itself via a decorator. New formats can be added without modifying existing code.
 
-### What Makes the PDF Extractor Different
+### PDF extraction in detail
 
-Most PDF parsers do one thing: dump all the text. DocForge does more:
+The PDF extractor does more than dump text. For each page it:
 
-1. **Reading order** -- detects multi-column layouts by finding gaps in x-coordinates, then reads left column before right column instead of interleaving lines
-2. **Heading detection** -- compares each text block's font size against the median. Larger or bolder text gets marked as a heading with the appropriate level
-3. **Scanned page detection** -- if a page has images but fewer than 50 characters of digital text, it's treated as a scan and routed through OCR
-4. **Hybrid form extraction** -- when a page has some digital text (printed labels) but also images (handwritten fields), hybrid mode runs both extraction methods and uses spatial overlap to merge without duplicating the printed text
-5. **Table detection** -- finds horizontal and vertical lines in the PDF's drawing commands to identify table grids, then maps text into cells
+- Extracts text blocks with position, font size, and bold flags
+- Detects multi-column layouts by finding gaps in x-coordinates and reads columns in order
+- Identifies headings by comparing font sizes to the page median
+- Detects scanned pages (few characters of text plus embedded images) and routes them through OCR
+- In hybrid mode, runs both digital and OCR extraction on form-like pages and merges using bounding box overlap
+- Finds tables by looking for horizontal and vertical lines in the PDF's drawing commands
 
-## Output Schema
+## Output schema
 
 ```
 ParseResult
@@ -211,17 +178,13 @@ Metadata
 
 ## Dependencies
 
-**Core** (always installed):
-- PyMuPDF -- PDF parsing
-- Pydantic v2 -- output models and validation
-- Click -- CLI framework
-- BeautifulSoup4 -- HTML parsing
+Core (always installed): PyMuPDF, Pydantic v2, Click, BeautifulSoup4
 
-**Optional**:
-- `docforge[ocr]` -- pytesseract, Pillow (requires system Tesseract install)
-- `docforge[easyocr]` -- EasyOCR (no system install needed, uses PyTorch)
+Optional:
+- `docforge[ocr]` -- pytesseract and Pillow (also requires a system Tesseract install)
+- `docforge[easyocr]` -- EasyOCR (uses PyTorch, no system install needed)
 - `docforge[docx]` -- python-docx
-- `docforge[email]` -- extract-msg (for .msg files; .eml works out of the box)
+- `docforge[email]` -- extract-msg for .msg files (.eml works without extras)
 - `docforge[all]` -- everything above
 
 ## Development
