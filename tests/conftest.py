@@ -11,11 +11,15 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 @pytest.fixture(scope="session", autouse=True)
 def generate_fixtures() -> None:
-    """Generate test PDF fixtures using fpdf2."""
+    """Generate test fixtures programmatically."""
     FIXTURES_DIR.mkdir(exist_ok=True)
     _make_simple_pdf()
     _make_tables_pdf()
     _make_multicolumn_pdf()
+    _make_sample_html()
+    _make_sample_eml()
+    _make_sample_docx()
+    _make_sample_image()
 
 
 def _make_simple_pdf() -> None:
@@ -149,3 +153,112 @@ def _make_multicolumn_pdf() -> None:
     ))
 
     pdf.output(str(path))
+
+
+def _make_sample_html() -> None:
+    """Create a sample HTML file with headings, paragraphs, and a table."""
+    path = FIXTURES_DIR / "sample.html"
+    if path.exists():
+        return
+
+    path.write_text("""\
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sample Document</title>
+    <meta name="author" content="Test Author">
+</head>
+<body>
+    <h1>Main Heading</h1>
+    <p>This is the first paragraph of the document.</p>
+    <h2>Section One</h2>
+    <p>Content under section one with some details.</p>
+    <table>
+        <tr><th>Name</th><th>Value</th></tr>
+        <tr><td>Alpha</td><td>100</td></tr>
+        <tr><td>Beta</td><td>200</td></tr>
+    </table>
+    <h2>Section Two</h2>
+    <p>Content under section two.</p>
+</body>
+</html>
+""", encoding="utf-8")
+
+
+def _make_sample_eml() -> None:
+    """Create a sample .eml file."""
+    path = FIXTURES_DIR / "sample.eml"
+    if path.exists():
+        return
+
+    path.write_text("""\
+From: sender@example.com
+To: recipient@example.com
+Subject: Test Email Subject
+Date: Mon, 01 Jan 2024 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+This is the body of the test email.
+
+It has multiple paragraphs to verify extraction.
+
+Best regards,
+The Sender
+""", encoding="utf-8")
+
+
+def _make_sample_docx() -> None:
+    """Create a sample .docx file with headings, paragraphs, and a table."""
+    path = FIXTURES_DIR / "sample.docx"
+    if path.exists():
+        return
+
+    try:
+        from docx import Document
+    except ImportError:
+        return  # Skip if python-docx not installed
+
+    doc = Document()
+    doc.core_properties.title = "Sample DOCX"
+    doc.core_properties.author = "Test Author"
+
+    doc.add_heading("Document Title", level=1)
+    doc.add_paragraph("This is the introduction paragraph.")
+    doc.add_heading("Methods", level=2)
+    doc.add_paragraph("This section describes the methods used.")
+
+    table = doc.add_table(rows=3, cols=2)
+    table.cell(0, 0).text = "Name"
+    table.cell(0, 1).text = "Score"
+    table.cell(1, 0).text = "Alice"
+    table.cell(1, 1).text = "95"
+    table.cell(2, 0).text = "Bob"
+    table.cell(2, 1).text = "87"
+
+    doc.save(str(path))
+
+
+def _make_sample_image() -> None:
+    """Create a sample image with text for OCR testing."""
+    path = FIXTURES_DIR / "sample.png"
+    if path.exists():
+        return
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return  # Skip if Pillow not installed
+
+    img = Image.new("RGB", (800, 200), color="white")
+    draw = ImageDraw.Draw(img)
+
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 36)
+    except (OSError, IOError):
+        font = ImageFont.load_default()
+
+    draw.text((50, 30), "Hello World", fill="black", font=font)
+    draw.text((50, 100), "DocForge Test Image", fill="black", font=font)
+
+    img.save(str(path))
